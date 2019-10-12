@@ -1,5 +1,12 @@
 module DeepGP
 
-greet() = print("Hello World!")
+using LinearAlgebra
+using KernelFunctions
+using Flux
+using Zygote
+using Distributions
+
+include("layers.jl")
+
 
 end # module
