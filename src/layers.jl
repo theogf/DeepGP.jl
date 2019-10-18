@@ -21,8 +21,8 @@ function propagate(l::AbstractGPLayer,samples::AbstractArray{<:Real})
     mu(l,samples) + randn(size(samples,1),l.dim).*sqrt.(diag_sigma(l,samples))
 end
 
-mu(l::AbstractGPLayer,x) = hcat([mu(gp,x) for gp in l.gps]...)
-diag_sigma(l::AbstractGPLayer,x) = hcat([diag_sigma(gp,x) for gp in l.gps]...)
+mu(l::AbstractGPLayer,x) = reduce(hcat,[mu(gp,x) for gp in l.gps])
+diag_sigma(l::AbstractGPLayer,x) = reduce(hcat,[diag_sigma(gp,x) for gp in l.gps])
 
 kl_divergence(l::AbstractGPLayer) = sum(kl_divergence(gp) for gp in l.gps)
 
@@ -50,7 +50,13 @@ end
 
 function κ(gp::SVGP_Base,X::AbstractArray,invKmm)
     ## Return the K_XZ K
-    KernelFunctions.kernelmatrix(gp.kernel,X,gp.Z,obsdim=1)*invKmm
+    try
+        KernelFunctions.kernelmatrix(gp.kernel,X,gp.Z,obsdim=1)*invKmm
+    catch e
+        @show size(X)
+        @show size(gp.Z)
+        rethrow(e)
+    end
 end
 
 _k(gp::AbstractGPBase,x,y) = KernelFunctions.kernelmatrix(gp.kernel,x,y,obsdim=1)
