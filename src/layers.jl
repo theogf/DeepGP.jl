@@ -21,4 +21,8 @@ function κ(l::GPLayer,X::AbstractVector,Z::AbstractMatrix,invKmm)
     kernelmatrix(l.kernel,X)*invKmm
 end
 
-function
+function mu(l::GPLayer)
+
+end
+
+function sig(l::GPLayer)
