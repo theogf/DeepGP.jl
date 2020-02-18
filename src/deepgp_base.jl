@@ -4,7 +4,7 @@ struct DeepGPModel{T<:Tuple,L}
     likelihood::L
 end
 
-function DeepGPModel(layers...;likelihood=AGP.GaussianLikelihood())
+function DeepGPModel(layers...;likelihood=Normal())
     # Here do some checks with likelihood and last layer
     # Check dimensions between layers
     DeepGPModel{typeof(layers),typeof(likelihood)}(layers,length(layers),likelihood)
@@ -27,22 +27,18 @@ propagate(::Tuple{}, f) = f
 propagate(layers::Tuple,f) = propagate(Base.tail(layers),propagate(first(layers),f))
 
 function expec_log_like(m,X,y,nSamples=1)
-    f = [X for _ in 1:nSamples]
-    f_final = propagate(m,f)
+    @show f = propagate(m,[X for _ in 1:nSamples])
     # for l in m.layers
     #     f = propagate(l,f)
     # end
-    loss = 0.0
-    for i in 1:nSamples
-        loss += logpdf(m,f_final[i],y)/nSamples
-    end
+    loss = mean(_logpdf.(Ref(m),f,Ref(y)))
     return loss
 end
 
-function logpdf(m::DeepGPModel,f,y)
-    tot = 0.0
-    for i in 1:length(y)
-        tot += AGP.logpdf(m.likelihood,f[i],y[i]) #Would not work for multiclass for example
-    end
-    return tot
+function _logpdf(m::DeepGPModel,f,y)
+    sum(_logpdf.(Ref(m.likelihood),f,y))
+end
+
+function _logpdf(l::Normal,f::Real,y::Real)
+    Distributions.logpdf(l,f-y)
 end
