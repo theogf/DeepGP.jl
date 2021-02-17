@@ -5,6 +5,7 @@ using Functors
 using KernelFunctions
 using LinearAlgebra
 using PDMats
+using Statistics
 
 include("utils.jl")
 include("layers.jl")

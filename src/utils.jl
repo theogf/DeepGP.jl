@@ -4,8 +4,12 @@ struct LinearMean{T<:Real,A<:AbstractMatrix{T}} <: PriorMean
     A::A
 end
 
-(μ::LinearMean)(x::AbstractMatrix) = μ.A * x
-(μ::LinearMean)(x::AbstractVector) = Ref(μ.A) .* x
+(μ::LinearMean)(x::AbstractMatrix) = vec(x * μ.A)
+(μ::LinearMean)(x::AbstractVector) =  dot.(x, Ref(μ.A))
+
+params(m::LinearMean) = m.A
+
+@functor LinearMean
 
 struct ZeroMean{T<:Real} <: PriorMean end
 

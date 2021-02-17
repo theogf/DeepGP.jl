@@ -21,9 +21,9 @@ Base.getindex(l::SVGPLayer, i::Int) = l.gps[i]
 Base.iterate(l::SVGPLayer) = iterate(l.gps)
 Base.iterate(l::SVGPLayer, state::Any) = iterate(l.gps, state)
 
-function propagate(l::AbstractGPLayer, samples::AbstractVector{<:AbstractArray})
-    compute_K.(l.gps)
-    return propagate.(Ref(l), samples)
+function propagate(layer::AbstractGPLayer, samples::AbstractVector{<:AbstractArray})
+    compute_K.(layer.gps)
+    return propagate.(Ref(layer), samples)
 end
 
 ## Return the parametrization m + eps * sqrt(S)
@@ -32,13 +32,17 @@ function propagate(l::AbstractGPLayer, samples::AbstractArray{<:Real})
 end
 
 # mu(l::AbstractGPLayer,x) = reduce(hcat,mu(gp,x) for gp in l.gps)
-function Distributions.mean(l::AbstractGPLayer, x::AbstractArray)
-    return reduce(hcat, mean(gp, x) for gp in l)
+function Statistics.mean(layer::AbstractGPLayer, x::AbstractArray)
+    return reduce(hcat, mean(gp, x) for gp in layer)
 end
-Distributions.var(l::AbstractGPLayer, x) = reduce(hcat, var(gp, x) for gp in l)
-sigma(l::AbstractGPLayer, x) = sigma.(l, Ref(x))
 
-KL(l::AbstractGPLayer) = sum(KL, l.gps)
+function Statistics.var(layer::AbstractGPLayer, x)
+    reduce(hcat, var(gp, x) for gp in layer)
+end
+
+sigma(layer::AbstractGPLayer, x) = sigma.(layer, Ref(x))
+
+KL(layer::AbstractGPLayer) = sum(KL, layer)
 
 abstract type AbstractGPBase end;
 
@@ -48,12 +52,12 @@ mutable struct SVGPBase{T,TK} <: AbstractGPBase
     L::LowerTriangular{T,Matrix{T}}
     μ₀::PriorMean
     kernel::Kernel
-    Z::Matrix
+    Z::Matrix{T}
     K::TK
     function SVGPBase(
-        dim, Z::Matrix{T}, kernel=SqExponentialKernel(), μ₀::PriorMean=ZeroMean(); usepdmat=false
+        ndim, Z::AbstractMatrix{T}, kernel=SqExponentialKernel(), μ₀::PriorMean=ZeroMean(); usepdmat=false
     ) where {T}#AGP.ZeroMean()) where {T}
-        K = usepdmat ? PDMat(diagm(ones(T, dim))) : Symmetric(diagm(ones(T, dim)))
+        K = usepdmat ? PDMat(diagm(ones(T, ndim))) : Symmetric(diagm(ones(T, ndim)))
         return new{T,typeof(K)}(
             dim, zeros(T, dim), LowerTriangular(diagm(ones(T, dim))), μ₀, kernel, Z, K
         )
@@ -61,20 +65,20 @@ mutable struct SVGPBase{T,TK} <: AbstractGPBase
     function SVGPBase(
         μ::Vector{T},
         L::LowerTriangular{T},
-        Z::Matrix,
+        Z::AbstractMatrix{T},
         kernel::KernelFunctions.Kernel,
         μ₀::PriorMean=ZeroMean(),
         usepdmat=false,
-    ) where {T} #,μ₀::AGP.PriorMean) where {T}
-        d = length(μ)
-        K = usepdmat ? PDMat(diagm(ones(T, d))) : Symmetric(diagm(ones(T, d)))
-        return new{T,typeof(K)}(d, μ, L, μ₀, kernel, Z, K)
+    ) where {T}
+        ndim = length(μ)
+        K = usepdmat ? PDMat(diagm(ones(T, ndim))) : Symmetric(diagm(ones(T, ndim)))
+        return new{T,typeof(K)}(ndim, μ, L, μ₀, kernel, Z, K)
     end
 end
 
 @functor SVGPBase
 
-params(gp::SVGPBase) = (gp.μ, gp.L, gp.Z)
+params(gp::SVGPBase) = (gp.μ, gp.L, gp.Z, params(gp.μ₀))
 
 function compute_K(gp::SVGPBase{T,<:Symmetric}) where {T}
     return gp.K = Symmetric(kernelmatrix(kernel(gp), gp.Z; obsdim=1) + jitt * I)
@@ -107,15 +111,17 @@ function KernelFunctions.kernelmatrix_diag(gp::AbstractGPBase, x)
 end
 
 # mu(gp::SVGP_Base,x)= gp.μ₀(x) + κ(gp,x,gp.invKmm)*(gp.μ) -gp.μ₀(gp.Z)
-Distributions.mean(gp::SVGPBase) = gp.μ
-Distributions.mean(gp::SVGPBase, x::AbstractArray) = κ(gp, x) * (gp.μ - gp.μ₀(gp.Z))
-Distributions.var(gp::SVGPBase) = opt_diag(gp.L)
-Distributions.cov(gp::SVGPBase) = XXt(gp.L)
+Statistics.mean(gp::SVGPBase) = gp.μ
+function Statistics.mean(gp::SVGPBase, x::AbstractArray, κ=κ(gp, x))
+    return κ * (gp.μ - gp.μ₀(gp.Z))
+end
+Statistics.var(gp::SVGPBase) = opt_diag(gp.L)
+Statistics.cov(gp::SVGPBase) = XXt(gp.L)
 covprior(gp::SVGPBase) = gp.K
-function Distributions.var(gp::SVGPBase, x, κ=κ(gp, x))
+function Statistics.var(gp::SVGPBase, x, κ=κ(gp, x))
     return diag(kernelmatrix(gp, x)) - opt_diag(κ * (gp.K - cov(gp)), κ)
 end
-function Distributions.cov(gp::SVGPBase, x, κ=κ(gp, x, gp.K))
+function Statistics.cov(gp::SVGPBase, x, κ=κ(gp, x, gp.K))
     return kernelmatrix(gp, x) - κ * (covprior(gp) - cov(gp)) * κ'
 end
 
@@ -126,4 +132,4 @@ function KL(gp::SVGPBase)
         opt_trace(inv(covprior(gp)), cov(gp)) +
         invquad(covprior(gp), mean(gp) - gp.μ₀(gp.Z)) - length(gp.μ)
     )
-end #WARNING removed μ₀
+end
